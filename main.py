@@ -10,70 +10,81 @@ st.set_page_config(page_title="SkiMaster Pro", page_icon="⛷️")
 API_KEY = "3e830cd1e7024f7d1839481229012cfe"
 MY_GEAR = "K2 Mindbender BOA (Size: 29.5)"
 
-# Initialize session state for history
+# Initialize session state
 if 'history' not in st.session_state:
     st.session_state.history = []
+if 'resort_data' not in st.session_state:
+    st.session_state.resort_data = None
 
 def get_weather(city=None, lat=None, lon=None):
     if lat and lon:
         url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
     else:
         url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=metric"
-    
     try:
         res = requests.get(url).json()
         return res if res.get("cod") == 200 else None
     except:
         return None
 
-# --- UI ---
+# --- UI Header ---
 st.title("⛷️ SkiMaster Pro")
+st.write(f"{datetime.now().strftime('%A, %d %B %Y')}")
 
-# 1. GPS Location Button
-st.subheader("📍 Smart Location")
-loc = get_geolocation()
-if loc:
-    lat = loc['coords']['latitude']
-    lon = loc['coords']['longitude']
-    if st.button("Check Weather at My Current Location"):
-        data = get_weather(lat=lat, lon=lon)
-        if data:
-            st.session_state.selected_resort = data['name']
-
-# 2. Search Input
-resort = st.text_input("Search Resort Name:", placeholder="e.g. Val Thorens, Ischgl")
-
-if resort:
-    if resort not in st.session_state.history:
-        st.session_state.history.insert(0, resort)
-        st.session_state.history = st.session_state.history[:3] # Keep last 3
-
-# 3. Recent Searches
-if st.session_state.history:
-    st.write("🕒 Recent:", " | ".join(st.session_state.history))
-
-# 4. Main Display
-target = resort if resort else st.session_state.get('selected_resort')
-
-if target:
-    data = get_weather(target)
-    if data:
-        st.header(f"Results for {data['name']}")
-        col1, col2 = st.columns(2)
-        col1.metric("Temperature", f"{data['main']['temp']}°C")
-        col2.metric("Wind Speed", f"{data['wind']['speed']} km/h")
-        
-        # 5. Events Section
-        st.divider()
-        st.subheader("📅 Local Events & Après-Ski")
-        res_enc = urllib.parse.quote(data['name'])
-        
-        st.info(f"Check out what's happening in {data['name']} today:")
-        st.markdown(f"🔗 [Live Music & Festivals](https://www.google.com/search?q={res_enc}+events+festivals+this+week)")
-        st.markdown(f"🔗 [Après-Ski Parties](https://www.google.com/search?q={res_enc}+apres+ski+parties)")
-        
-    else:
-        st.error("Location not found. Try a nearby city name.")
-
+# --- Sidebar ---
 st.sidebar.header("🎿 My Gear")
-st.sidebar.info(MY_GEAR)
+st.sidebar.info(f"Boots: {MY_GEAR}")
+if st.session_state.history:
+    st.sidebar.write("---")
+    st.sidebar.subheader("🕒 Recent Searches")
+    for item in st.session_state.history:
+        if st.sidebar.button(item):
+            st.session_state.resort_data = get_weather(item)
+
+# --- Selection Logic ---
+st.subheader("Choose your method:")
+tab1, tab2 = st.tabs(["🔍 Search by Name", "📍 Use My Location"])
+
+with tab1:
+    resort_input = st.text_input("Enter Resort Name:", placeholder="e.g. Ischgl")
+    if st.button("Search"):
+        if resort_input:
+            data = get_weather(resort_input)
+            if data:
+                st.session_state.resort_data = data
+                if data['name'] not in st.session_state.history:
+                    st.session_state.history.insert(0, data['name'])
+                    st.session_state.history = st.session_state.history[:5]
+            else:
+                st.error("Resort not found. Try 'Val Thorens' or 'Zermatt'.")
+
+with tab2:
+    st.write("Click the button to find the resort you are currently in.")
+    loc = get_geolocation()
+    if st.button("Get Weather from GPS"):
+        if loc and 'coords' in loc:
+            data = get_weather(lat=loc['coords']['latitude'], lon=loc['coords']['longitude'])
+            if data:
+                st.session_state.resort_data = data
+        else:
+            st.warning("Please wait a second for GPS signal or allow location access.")
+
+# --- Results Display ---
+if st.session_state.resort_data:
+    data = st.session_state.resort_data
+    st.divider()
+    st.header(f"Results for {data['name']}")
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Temperature", f"{data['main']['temp']}°C")
+    col2.metric("Wind Speed", f"{data['wind']['speed']} km/h")
+    
+    # Events & Links Section
+    st.subheader("📅 Events & Local Info")
+    res_enc = urllib.parse.quote(data['name'])
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown(f"🔗 [Music & Parties](https://www.google.com/search?q={res_enc}+ski+events+today)")
+    with col_b:
+        st.markdown(f"🔗 [Best Après-Ski](https://www.google.com/search?q={res_enc}+best+apres+ski)")
