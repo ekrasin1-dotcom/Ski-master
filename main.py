@@ -4,98 +4,114 @@ from datetime import datetime
 import urllib.parse
 from streamlit_js_eval import get_geolocation
 
-# --- Configuration ---
-st.set_page_config(page_title="SkiMaster Pro", page_icon="⛷️")
+# --- Setup & Config ---
+st.set_page_config(page_title="SkiMaster Pro", page_icon="⛷️", layout="centered")
 
 API_KEY = "3e830cd1e7024f7d1839481229012cfe"
 MY_GEAR = "K2 Mindbender BOA (Size: 29.5)"
 
-# Popular Ski Resorts List for Autocomplete
-POPULAR_RESORTS = [
+# Extended Resort List
+RESORTS_DB = sorted([
     "Val Thorens", "Ischgl", "St. Anton am Arlberg", "Zermatt", "Chamonix", 
     "Courchevel", "Meribel", "Tignes", "Val d'Isere", "Verbier", "Mayrhofen", 
     "Sölden", "Kitzbühel", "Lech", "Avoriaz", "Les Arcs", "La Plagne", 
     "Livigno", "Cervinia", "Sestriere", "Cortina d'Ampezzo", "Bad Gastein",
     "Saalbach", "Zell am See", "Flaine", "Crans-Montana", "Vail", "Aspen", 
-    "Whistler", "Bansko", "Gudauri", "Poiana Brasov"
-]
+    "Whistler", "Bansko", "Gudauri", "Poiana Brasov", "Bormio", "Morzine", 
+    "Madonna di Campiglio", "Obertauern", "Serre Chevalier", "Les Menuires"
+])
 
 if 'history' not in st.session_state:
     st.session_state.history = []
 if 'resort_data' not in st.session_state:
     st.session_state.resort_data = None
 
-def get_weather(city=None, lat=None, lon=None):
-    if lat and lon:
-        url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
-    else:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=metric"
+def get_weather(query):
+    # Clean query for API (removes special characters like ' that break search)
+    clean_query = query.replace("'", "").replace("’", "")
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={clean_query}&appid={API_KEY}&units=metric"
     try:
         res = requests.get(url).json()
         return res if res.get("cod") == 200 else None
     except:
         return None
 
-# --- UI ---
+def get_weather_by_coords(lat, lon):
+    url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
+    try:
+        res = requests.get(url).json()
+        return res if res.get("cod") == 200 else None
+    except:
+        return None
+
+# --- App UI ---
 st.title("⛷️ SkiMaster Pro")
-st.write(f"{datetime.now().strftime('%A, %d %B %Y')}")
+st.write(f"📅 {datetime.now().strftime('%A, %d %B %Y')}")
 
-# --- Sidebar ---
-st.sidebar.header("🎿 My Gear")
-st.sidebar.info(f"Boots: {MY_GEAR}")
+# Sidebar for Gear & History
+st.sidebar.header("🎿 My Equipment")
+st.sidebar.info(MY_GEAR)
 if st.session_state.history:
-    st.sidebar.write("---")
-    st.sidebar.subheader("🕒 Recent")
-    for item in st.session_state.history:
-        if st.sidebar.button(item):
-            st.session_state.resort_data = get_weather(item)
+    st.sidebar.divider()
+    st.sidebar.subheader("🕒 Recent Searches")
+    for h in st.session_state.history:
+        if st.sidebar.button(f"Go to {h}"):
+            st.session_state.resort_data = get_weather(h)
 
-# --- Main Logic ---
-tab1, tab2 = st.tabs(["🔍 Find Resort", "📍 GPS Location"])
+# Selection Tabs
+tab1, tab2 = st.tabs(["🔍 Find My Resort", "📍 GPS Sync"])
 
 with tab1:
-    # Use selectbox with search capability
-    selected_resort = st.selectbox(
-        "Start typing resort name:", 
-        options=[""] + sorted(list(set(POPULAR_RESORTS + st.session_state.history))),
-        format_func=lambda x: "Select a resort..." if x == "" else x
-    )
+    search_choice = st.selectbox("Select from list or type below:", [""] + RESORTS_DB)
+    manual_name = st.text_input("Can't find it? Type name manually:")
     
-    manual_input = st.text_input("Or type full name manually:")
-    
-    if st.button("Get Weather"):
-        final_query = manual_input if manual_input else selected_resort
-        if final_query:
-            data = get_weather(final_query)
+    if st.button("Check Conditions"):
+        query = manual_name if manual_name else search_choice
+        if query:
+            data = get_weather(query)
             if data:
                 st.session_state.resort_data = data
                 if data['name'] not in st.session_state.history:
                     st.session_state.history.insert(0, data['name'])
                     st.session_state.history = st.session_state.history[:5]
             else:
-                st.error("Could not find weather for this location. Try a nearby city.")
+                st.error(f"Sorry, couldn't find '{query}'. Try the nearest big town or check spelling.")
 
 with tab2:
+    st.write("Automatically detect your resort:")
     loc = get_geolocation()
-    if st.button("Locate Me"):
+    if st.button("Identify My Location"):
         if loc and 'coords' in loc:
-            data = get_weather(lat=loc['coords']['latitude'], lon=loc['coords']['longitude'])
+            data = get_weather_by_coords(loc['coords']['latitude'], loc['coords']['longitude'])
             if data:
                 st.session_state.resort_data = data
         else:
-            st.warning("Please wait for GPS signal or enable location permissions.")
+            st.warning("Still waiting for GPS... Make sure location access is 'Always' or 'While Using'.")
 
-# --- Results ---
+# --- Results Area ---
 if st.session_state.resort_data:
-    data = st.session_state.resort_data
+    res = st.session_state.resort_data
     st.divider()
-    st.header(f"Live: {data['name']}")
+    st.header(f"📍 {res['name']}, {res['sys']['country']}")
     
-    c1, c2 = st.columns(2)
-    c1.metric("Temperature", f"{data['main']['temp']}°C")
-    c2.metric("Wind Speed", f"{data['wind']['speed']} m/h")
+    # Weather Metrics
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Temp", f"{res['main']['temp']}°C")
+    m2.metric("Feels Like", f"{res['main']['feels_like']}°C")
+    m3.metric("Wind", f"{res['wind']['speed']} km/h")
     
-    st.subheader("📅 Plan Your Day")
-    res_enc = urllib.parse.quote(data['name'])
-    st.markdown(f"🔗 [Events in {data['name']}](https://www.google.com/search?q={res_enc}+ski+events+2026)")
-    st.markdown(f"🔗 [Best Restaurants](https://www.google.com/search?q={res_enc}+top+restaurants+ski)")
+    # Recommendations Section
+    st.subheader("🌟 SkiMaster Recommendations")
+    st.write(f"Best spots in {res['name']} for today:")
+    
+    q_enc = urllib.parse.quote(res['name'])
+    
+    rec_col1, rec_col2 = st.columns(2)
+    with rec_col1:
+        st.markdown(f"🍺 [**Best Après-Ski Bars**](https://www.google.com/search?q={q_enc}+best+apres+ski+bars+party)")
+        st.markdown(f"🍽️ [**Top-Rated Restaurants**](https://www.google.com/search?q={q_enc}+best+restaurants+for+dinner)")
+    with rec_col2:
+        st.markdown(f"🎶 [**Events & Nightlife**](https://www.google.com/search?q={q_enc}+events+festivals+today)")
+        st.markdown(f"🚠 [**Live Webcams**](https://www.google.com/search?q={q_enc}+ski+webcams+live)")
+
+    st.success(f"Enjoy your session with your {MY_GEAR}!")
