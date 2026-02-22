@@ -2,97 +2,78 @@ import streamlit as st
 import requests
 from datetime import datetime
 import urllib.parse
+from streamlit_js_eval import get_geolocation
 
-# --- Page Configuration ---
-st.set_page_config(page_title="SkiMaster Pro", page_icon="⛷️", layout="centered")
+# --- Configuration ---
+st.set_page_config(page_title="SkiMaster Pro", page_icon="⛷️")
 
-# --- Custom Styling ---
-st.markdown("""
-    <style>
-    .main {
-        background-color: #f0f2f6;
-    }
-    .stButton>button {
-        width: 100%;
-        border-radius: 10px;
-        height: 3em;
-        background-color: #007bff;
-        color: white;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- Your API Key & Gear Info ---
 API_KEY = "3e830cd1e7024f7d1839481229012cfe"
 MY_GEAR = "K2 Mindbender BOA (Size: 29.5)"
 
-def get_weather(city):
-    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=metric"
+# Initialize session state for history
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+def get_weather(city=None, lat=None, lon=None):
+    if lat and lon:
+        url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
+    else:
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=metric"
+    
     try:
         res = requests.get(url).json()
         return res if res.get("cod") == 200 else None
     except:
         return None
 
-# --- App Interface ---
+# --- UI ---
 st.title("⛷️ SkiMaster Pro")
-st.write(f"{datetime.now().strftime('%A, %d %B %Y')}")
 
-# Sidebar - Gear & Stats
-with st.sidebar:
-    st.header("🎿 My Gear")
-    st.info(f"**Boots:** {MY_GEAR}")
-    st.write("---")
-    st.write("❄️ *Have a great session on the slopes!*")
+# 1. GPS Location Button
+st.subheader("📍 Smart Location")
+loc = get_geolocation()
+if loc:
+    lat = loc['coords']['latitude']
+    lon = loc['coords']['longitude']
+    if st.button("Check Weather at My Current Location"):
+        data = get_weather(lat=lat, lon=lon)
+        if data:
+            st.session_state.selected_resort = data['name']
 
-# Input for Resort
-resort = st.text_input("Enter Ski Resort Name:", placeholder="e.g. Val Thorens, Ischgl, St. Anton")
+# 2. Search Input
+resort = st.text_input("Search Resort Name:", placeholder="e.g. Val Thorens, Ischgl")
 
 if resort:
-    data = get_weather(resort)
-    
+    if resort not in st.session_state.history:
+        st.session_state.history.insert(0, resort)
+        st.session_state.history = st.session_state.history[:3] # Keep last 3
+
+# 3. Recent Searches
+if st.session_state.history:
+    st.write("🕒 Recent:", " | ".join(st.session_state.history))
+
+# 4. Main Display
+target = resort if resort else st.session_state.get('selected_resort')
+
+if target:
+    data = get_weather(target)
     if data:
-        # Weather Display
-        st.subheader(f"Current Status in {resort.capitalize()}")
+        st.header(f"Results for {data['name']}")
+        col1, col2 = st.columns(2)
+        col1.metric("Temperature", f"{data['main']['temp']}°C")
+        col2.metric("Wind Speed", f"{data['wind']['speed']} km/h")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Temp", f"{data['main']['temp']}°C")
-        with col2:
-            st.metric("Wind", f"{data['wind']['speed']} km/h")
-        with col3:
-            st.metric("Humidity", f"{data['main']['humidity']}%")
-            
-        st.write(f"**Condition:** {data['weather'][0]['description'].capitalize()}")
-        st.image(f"http://openweathermap.org/img/wn/{data['weather'][0]['icon']}@2x.png")
-
+        # 5. Events Section
         st.divider()
-
-        # Action Buttons (Smart Links)
-        st.subheader("📍 Explore the Resort")
-        resort_encoded = urllib.parse.quote(resort)
+        st.subheader("📅 Local Events & Après-Ski")
+        res_enc = urllib.parse.quote(data['name'])
         
-        col_a, col_b = st.columns(2)
+        st.info(f"Check out what's happening in {data['name']} today:")
+        st.markdown(f"🔗 [Live Music & Festivals](https://www.google.com/search?q={res_enc}+events+festivals+this+week)")
+        st.markdown(f"🔗 [Après-Ski Parties](https://www.google.com/search?q={res_enc}+apres+ski+parties)")
         
-        with col_a:
-            st.markdown(f"[🍴 Top Restaurants](https://www.google.com/search?q=best+restaurants+in+{resort_encoded}+open+now)")
-            st.markdown(f"[🎉 Events & Festivals](https://www.google.com/search?q=events+and+festivals+in+{resort_encoded}+this+week)")
-
-        with col_b:
-            st.markdown(f"[🗺️ Piste Map](https://www.google.com/search?q={resort_encoded}+ski+piste+map+high+resolution)")
-            st.markdown(f"[🍻 Best Après-Ski](https://www.google.com/search?q=best+apres+ski+bars+in+{resort_encoded})")
-
-        # Dynamic Tip
-        st.divider()
-        if data['main']['temp'] < -5:
-            st.warning("It's cold! Perfect weather for a hot Fondue or a fresh Carpaccio inside a cozy hut.")
-        else:
-            st.success("Great weather! Enjoy a fresh Beef Carpaccio on a sunny terrace.")
-            
     else:
-        st.error("Resort not found. Please check your spelling (use English names).")
+        st.error("Location not found. Try a nearby city name.")
 
-else:
-    st.info("Enter a resort name to get live weather, food recommendations, and events.")
-
-st.caption("Data provided by OpenWeather API")
+st.sidebar.header("🎿 My Gear")
+st.sidebar.info(MY_GEAR)
