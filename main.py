@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 from datetime import datetime
 import urllib.parse
-from thefuzz import process 
 
 # --- Setup ---
 st.set_page_config(page_title="SkiMaster Pro", page_icon="⛷️")
@@ -10,19 +9,28 @@ st.set_page_config(page_title="SkiMaster Pro", page_icon="⛷️")
 API_KEY = "3e830cd1e7024f7d1839481229012cfe"
 MY_GEAR = "K2 Mindbender BOA (Size: 29.5)"
 
-# מפה חכמה שמתקנת שמות לפורמט שה-API חייב לקבל
-# הוספתי כאן את המדינות (AT, FR) כדי שלא ייתן לך תוצאות מהמדבר
+# מפה מורחבת הכוללת את איטליה והדולומיטים
 RESORT_MAPPING = {
+    # צרפת
     "val d isere": "Val-d'Isere,FR",
     "val disere": "Val-d'Isere,FR",
-    "ischgl": "Ischgl,AT",
-    "ischgle": "Ischgl,AT",
-    "st anton": "Sankt Anton am Arlberg,AT",
-    "saint anton": "Sankt Anton am Arlberg,AT",
     "les arcs": "Bourg-Saint-Maurice,FR",
     "les arc": "Bourg-Saint-Maurice,FR",
     "tignes": "Tignes,FR",
-    "zermatt": "Zermatt,CH",
+    # אוסטריה
+    "ischgl": "Ischgl,AT",
+    "ischgle": "Ischgl,AT",
+    "st anton": "Sankt Anton am Arlberg,AT",
+    # איטליה - דולומיטים
+    "sella ronda": "Canazei,IT",
+    "sela ronda": "Canazei,IT",
+    "campitello": "Campitello di Fassa,IT",
+    "val di fassa": "Canazei,IT",
+    "canazei": "Canazei,IT",
+    "selva": "Selva di Val Gardena,IT",
+    "val gardena": "Selva di Val Gardena,IT",
+    "livigno": "Livigno,IT",
+    # שונות
     "kicking horse": "Golden,CA",
     "hermon": "Majdal Shams,IL"
 }
@@ -30,10 +38,13 @@ RESORT_MAPPING = {
 def get_weather(query):
     q_clean = query.lower().strip()
     
-    # 1. בדיקה במפה החכמה
-    target = RESORT_MAPPING.get(q_clean)
+    # חיפוש חכם במיפוי - בודק אם המילה שכתבת נמצאת בתוך אחד המפתחות
+    target = None
+    for key, value in RESORT_MAPPING.items():
+        if key in q_clean:
+            target = value
+            break
     
-    # 2. אם לא מצא במפה, ננסה ניקוי כללי
     if not target:
         target = q_clean.replace("ski", "").replace("resort", "").strip()
 
@@ -50,16 +61,15 @@ def get_weather(query):
 st.title("⛷️ SkiMaster Pro")
 st.write(f"📅 {datetime.now().strftime('%A, %d %B %Y')}")
 
-search_input = st.text_input("Search Resort (e.g. ischgl, st anton, val d isere):")
+search_input = st.text_input("Search Resort (e.g. Sella Ronda, Campitello, Ischgl):")
 
 if st.button("Check Conditions"):
     if search_input:
         data, found_name = get_weather(search_input)
         if data:
             st.session_state.resort_data = data
-            # בדיקת הגיון - אם הטמפרטורה גבוהה מדי לאתר סקי, ניתן אזהרה
-            if data['main']['temp'] > 20:
-                st.warning("⚠️ This seems too warm for skiing! Are we in the right place?")
+            if data['main']['temp'] > 18:
+                st.warning("⚠️ High temp detected! Make sure this is the right ski resort.")
             else:
                 st.success(f"📍 Found: {found_name}")
         else:
@@ -69,14 +79,13 @@ if 'resort_data' in st.session_state and st.session_state.resort_data:
     res = st.session_state.resort_data
     st.divider()
     
-    # תצוגה מעוצבת יותר
-    st.header(f"Live: {res['name']}")
+    st.header(f"Live Weather: {res['name']}")
     col1, col2, col3 = st.columns(3)
     col1.metric("Temp", f"{res['main']['temp']}°C")
     col2.metric("Wind", f"{res['wind']['speed']} km/h")
-    col3.metric("Humidity", f"{res['main']['humidity']}%")
+    col3.metric("Status", res['weather'][0]['main'])
     
-    # המלצות
+    # המלצות מותאמות
     st.subheader("🎿 SkiMaster Guide")
     q_enc = urllib.parse.quote(res['name'])
     c1, c2 = st.columns(2)
